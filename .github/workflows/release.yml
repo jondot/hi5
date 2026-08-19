@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+jobs:
+  # The tag and the manifest are read by different things — the release
+  # assets take the version from the tag, the bundle's plist takes it
+  # from Cargo.toml (see scripts/bundle.sh). If they disagree, a release
+  # ships an app that reports a different number than its own name.
+  # Fail here instead.
+  verify:
+    name: Tag matches workspace version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$tag" != "$crate" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match workspace version ${crate}"
+            exit 1
+          fi
+          echo "releasing ${crate}"
+
+  # One universal hi5.app, published two ways: a disk image (drag to
+  # Applications) and a plain zip. Both darwin targets build on the same
+  # runner (Apple silicon cross-compiles x86_64 with the SDK it already
+  # has), lipo joins them, bundle.sh wraps the result.
+  #
+  # The bundle is ad-hoc signed only. There is no Developer ID
+  # certificate behind this project, so nothing here is notarized and
+  # Gatekeeper will refuse the first plain double-click; the release
+  # notes below say what to do about it. When a certificate exists, this
+  # is the job that grows a `codesign --sign "Developer ID…"` and a
+  # `notarytool submit --wait` step.
+  build:
+    name: Build universal bundle
+    needs: verify
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release -p hi5-gpui --bin hi5 --target aarch64-apple-darwin --target x86_64-apple-darwin
+
+      - name: Bundle
+        run: |
+          mkdir -p target/universal
+          lipo -create -output target/universal/hi5 \
+            target/aarch64-apple-darwin/release/hi5 \
+            target/x86_64-apple-darwin/release/hi5
+          lipo -info target/universal/hi5
+          ./scripts/bundle.sh release target/universal/hi5
+          codesign --verify --verbose=2 target/universal/hi5.app
+
+      - name: Package
+        # ditto, not zip: it keeps the bundle's resource forks and the
+        # ad-hoc signature intact, and Finder unzips it back to a plain
+        # hi5.app. Stable file names so the /releases/latest/download
+        # URLs in the README keep working.
+        run: |
+          ./scripts/dmg.sh target/universal/hi5.app hi5-macos-universal.dmg
+          ditto -c -k --keepParent target/universal/hi5.app hi5-macos-universal.zip
+          ls -lh hi5-macos-universal.dmg hi5-macos-universal.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hi5-macos-universal
+          path: |
+            hi5-macos-universal.dmg
+            hi5-macos-universal.zip
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write   # cosign keyless signing via OIDC
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      # Held at v3: v4 installs cosign 3, where `sign-blob` requires
+      # `--bundle` and stops emitting the detached .sig/.crt pair the
+      # verify command in the notes below relies on.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign artifacts (keyless)
+        run: |
+          find artifacts \( -name '*.zip' -o -name '*.dmg' \) -print0 | while IFS= read -r -d '' f; do
+            echo "Signing $f"
+            cosign sign-blob --yes \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.crt" \
+              "$f"
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.sig
+            artifacts/**/*.crt
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            Download `hi5-macos-universal.dmg`, open it, and drag **hi5**
+            onto **Applications**. (`hi5-macos-universal.zip` is the same
+            bundle, if you would rather unzip.) One binary for Apple silicon
+            and Intel; macOS 13 or later.
+
+            The app is not notarized — there is no Apple Developer
+            certificate behind this project — so the first launch needs
+            one extra step. Either right-click `hi5.app` → **Open** →
+            **Open**, or:
+
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/hi5.app
+            ```
+
+            After that it opens like any other app. hi5 lives in the menu
+            bar (🖐), not the Dock.
+
+            ## Verify a download
+
+            Artifacts are signed with [cosign](https://docs.sigstore.dev/cosign/overview)
+            (keyless, via GitHub OIDC) — there is no static key to trust; the
+            signature is bound to this workflow run.
+
+            ```sh
+            cosign verify-blob \
+              --certificate-identity-regexp 'https://github.com/jondot/hi5/\.github/workflows/release\.yml' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate hi5-macos-universal.dmg.crt \
+              --signature hi5-macos-universal.dmg.sig \
+              hi5-macos-universal.dmg
+            ```

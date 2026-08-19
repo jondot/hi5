@@ -1,0 +1,50 @@
+{
+  "data": {
+    "search": {
+      "nodes": [
+        {
+          "id": "PR_kwDOabc123",
+          "number": 1420,
+          "title": "Fix migration ordering when timestamps collide",
+          "body": "## What\nTwo migrations collided.",
+          "url": "https://github.com/loco-rs/loco/pull/1420",
+          "isDraft": false,
+          "createdAt": "2026-08-17T08:14:00Z",
+          "additions": 12,
+          "deletions": 4,
+          "changedFiles": 3,
+          "author": { "login": "alice", "avatarUrl": "https://avatars.example/alice" },
+          "baseRefName": "main",
+          "repository": {
+            "nameWithOwner": "loco-rs/loco",
+            "defaultBranchRef": { "name": "main" }
+          },
+          "labels": { "nodes": [{ "name": "bug", "color": "d73a4a" }] },
+          "commits": {
+            "nodes": [
+              { "commit": { "oid": "a3f9c21", "statusCheckRollup": { "state": "SUCCESS" } } }
+            ]
+          }
+        },
+        {
+          "id": "PR_kwDOdef456",
+          "number": 87,
+          "title": "No checks configured on this repo",
+          "body": "",
+          "url": "https://github.com/jondot/hygen/pull/87",
+          "isDraft": false,
+          "createdAt": "2026-08-17T04:00:00Z",
+          "additions": 64,
+          "deletions": 9,
+          "changedFiles": 5,
+          "author": { "login": "carol", "avatarUrl": "https://avatars.example/carol" },
+          "repository": { "nameWithOwner": "jondot/hygen" },
+          "labels": { "nodes": [] },
+          "commits": {
+            "nodes": [{ "commit": { "oid": "b7d2e01", "statusCheckRollup": null } }]
+          }
+        }
+      ]
+    }
+  }
+}

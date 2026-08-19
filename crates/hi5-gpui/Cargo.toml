@@ -1,0 +1,92 @@
+[package]
+name = "hi5-gpui"
+description = "hi5 - zero-friction GitHub PR approval from the menu bar, built on GPUI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "hi5_gpui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hi5"
+path = "src/main.rs"
+
+# Renders every screen from fixtures and photographs itself. See
+# src/bin/preview.rs for why this exists rather than a robot that drives
+# the real app.
+[[bin]]
+name = "preview"
+path = "src/bin/preview/main.rs"
+
+[dependencies]
+hi5-core = { path = "../hi5-core" }
+
+# `runtime_shaders` is not a preference -- it is what makes this crate
+# buildable on a machine with only the Command Line Tools. GPUI's build
+# script otherwise shells out to `xcrun metal` to compile shaders.metal
+# ahead of time, and that compiler ships only with the full Xcode (~15GB).
+# With this feature the shader source is stitched into the binary and
+# handed to Metal's own runtime compiler instead. Same Metal backend.
+gpui = { version = "0.2", features = ["runtime_shaders"] }
+gpui-component = "0.5"
+gpui-component-assets = "0.5"
+
+# The menu-bar half of the app. None of this is hand-rolled AppKit: these
+# are the same maintained crates Tauri itself wraps, used directly.
+#   tray-icon    -- NSStatusItem, and a click event that already carries
+#                   the icon's screen rect, which is what the panel
+#                   anchors to.
+#   global-hotkey-- the ⌥⌘A summon.
+#   notify-rust  -- one banner per newly-visible PR.
+#   display-info -- every monitor's *global* bounds. Needed because
+#                   GPUI's own `Display::bounds()` returns
+#                   `origin: Default::default()` unconditionally
+#                   (gpui-0.2.2 src/platform/mac/display.rs:112) -- it
+#                   computes CGDisplayBounds and then throws the origin
+#                   away, so it cannot tell you a second monitor starts
+#                   at x=3440.
+tray-icon = "0.24"
+global-hotkey = "0.8"
+notify-rust = "4"
+auto-launch = "0.5"
+display-info = "0.5"
+
+# The irreducible AppKit surface, and only that. See platform/panel.rs
+# for why each of the two things below has no alternative in gpui 0.2.2.
+objc2 = "0.6"
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+  "NSApplication",
+  "NSResponder",
+  # The menu-bar item's own button, so it can stay lit while the panel
+  # is open -- see platform/tray.rs.
+  "NSStatusItem",
+  "NSStatusBarButton",
+  "NSButton",
+  "NSControl",
+  "NSView",
+  # The global mouse monitor that dismisses the panel when another
+  # menu-bar item is clicked -- see platform/dismiss.rs.
+  "NSEvent",
+  "NSScreen",
+  "block2",
+] }
+raw-window-handle = "0.6"
+
+anyhow.workspace = true
+chrono.workspace = true
+futures = "0.3"
+schemars = "1"
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+# Headless UI tests: a `TestAppContext` lays the real screens out with a
+# stub text system, and `probe` reads the bounds gpui computed. See
+# src/testing.rs.
+gpui = { version = "0.2", features = ["runtime_shaders", "test-support"] }
+tempfile = "3"

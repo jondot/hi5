@@ -1,0 +1,8 @@
+# rust
+/target
+**/target
+
+# macOS
+.DS_Store
+# Probe dumps beside the README screenshots; the PNGs are what is kept.
+docs/screenshots/*.json

@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  # What the bundle's plist promises (LSMinimumSystemVersion); the
+  # compiler should promise no less.
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+# Everything runs on macOS: hi5 is a menu-bar app, and hi5-gpui links
+# AppKit and Metal. There is no Linux build to check.
+jobs:
+  fmt:
+    name: Format
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: Test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The UI tests are headless — gpui's TestAppContext lays the real
+      # screens out with no window — so a runner without a display is
+      # enough. Only the `preview` binary needs a screen, and it is not
+      # run here.
+      - run: cargo test --workspace
+
+  # The thing a release ships, built the way a release builds it: both
+  # darwin targets, one universal binary, the bundle around it. Catches
+  # an x86_64 build break long before a tag does.
+  bundle:
+    name: Bundle
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p hi5-gpui --bin hi5 --target aarch64-apple-darwin --target x86_64-apple-darwin
+      - name: Universal binary and bundle
+        run: |
+          mkdir -p target/universal
+          lipo -create -output target/universal/hi5 \
+            target/aarch64-apple-darwin/release/hi5 \
+            target/x86_64-apple-darwin/release/hi5
+          ./scripts/bundle.sh release target/universal/hi5
+          lipo -info target/universal/hi5
+          codesign --verify --verbose=2 target/universal/hi5.app
+          plutil -lint target/universal/hi5.app/Contents/Info.plist
+          test -f target/universal/hi5.app/Contents/Resources/hi5.icns
+          ./scripts/dmg.sh target/universal/hi5.app target/universal/hi5.dmg
+          hdiutil imageinfo target/universal/hi5.dmg | grep -q 'Format: UDZO'
